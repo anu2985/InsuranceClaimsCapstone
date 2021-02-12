@@ -1,1 +1,15 @@
-# InsuranceClaimsCapstone
+# Insurance Claims Capstone
+
+India is a huge market for insurance but the industry is bleeding losses due to increasing fraud from inside and outside of the system. Insurance frauds leads to close to INR 40,000 crores loss which is close to 8.5% revenue of the insurance sector in India. These huge losses have prompted insurance companies to set-up a new anti-fraud department whose job is to identify the risk and loss to these frauds and to find out ways to reduce fraudulent claims. One such Insurance company has shared a similar problem of loosing revenue on Fraudulent Claims and for which they have shared their data to find a solution to the problem through analytics.
+The data is the claims summary of Auto Insurance. Auto Insurance is defined by Investopedia as “a policy purchased by vehicle owners to mitigate costs associated with getting into an auto accident. Instead of paying out-of-pocket for auto accidents, people pay annual premiums to an auto insurance company; the company then pays all or most of the costs associated with an auto accident or other vehicle damage.”
+
+# Problem Statement
+## Objective: To reduce frauds and optimize business revenue
+In order to reduce fraudulent claims, the insurance company wants to build a predictive model that will give them the list of claims to be Rejected in advance thus helping them to scrutinize claims going forward.
+While doing so, they would also like to classify high likely fraudulent claims with a stricter approach which could be used as a leverage for the frauds management team to take action beforehand.
+## Scope: To see Insurance as Socio-Economic opportunity
+The claims data will help understand the insurance industry real time with live use cases. For years, Insurance industry in India has not been able to gain the trust and assurance from a common man due to several myths and lack of awareness about the whole Insurance schema. In past, there have been various frauds in the name of Insurance due to which a common man does not feel safe to get him/herself insured against any future accidents/ mis-happenings and one such cause is the fraudulent claims.
+As a social step, we also need to utilize this opportunity to create a positive awareness and impression about Insurance as a product which is to be purchased for the well being of homes, families, countries and humanity overall.
+# Data Collection
+As an overview of the data, the given data is a sample of has 75,200 observations i.e., unique claims and 32 variables.The data has information about claims accepted or rejected based on the the different types of policies taken, their insured sum, vehicle accident/damage details, driver details, claim intimation and disbursement dates, policy holding additional endorsement clauses or no, policy and claim years, etc.
+The data has observations as claims with policies issued from 1998-99 till 2012-13. All observations have a unique key and there are no duplicates in the unique key, which indicates that there are unique 75,200 claims arising from policies issued from 1998-99 till 2012-13. The methodology of collecting the data is random sampling technique where every observation is mutually exclusive from the other observation.
