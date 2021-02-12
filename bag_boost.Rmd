@@ -1,0 +1,435 @@
+---
+title: "Bag_Boost"
+author: "Anupama Rathore"
+date: "05/12/2020"
+output: word_document
+---
+
+
+
+
+```{r echo=FALSE}
+toload_libraries <- c("reshape2", "rpsychi", "car", "psych", "corrplot", "forecast", "GPArotation", "psy", "MVN", "DataExplorer", "ppcor", "Metrics", "foreign", "MASS", "lattice", "nortest", "Hmisc","factoextra", "nFactors")
+#new.packages <- toload_libraries[!(toload_libraries %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.packages)
+lapply(toload_libraries, require, character.only= TRUE)
+library(funModeling)
+library(Hmisc)
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+library(PerformanceAnalytics)
+library(nFactors)
+library(psych)
+library(flextable)
+library(officer)
+library(GGally)
+library(caTools)
+library(data.table)
+library(ROCR)
+library(class)
+library(gmodels)
+library(naivebayes)
+library(gridExtra)
+library(caret)
+library(dplyr)
+library(class)
+library(gmodels)
+#library(datasets)
+
+```
+
+```{r echo=FALSE}
+load("groupdf.RData")
+
+str(df)
+
+
+#Partitioning data in train and test in 70:30 ratio
+set.seed(123)
+spl=sample.split(df$status,SplitRatio = 0.70)
+train=subset(df,spl==TRUE)
+dim(train)
+prop.table(table(train$status))
+
+
+test=subset(df,spl==FALSE)
+dim(test)
+prop.table(table(test$status))
+
+
+#loading a few libraries
+
+library(gbm)          # basic implementation using AdaBoost
+library(xgboost)      # a faster implementation of a gbm
+library(caret)   
+library(data.table) 
+#library(dplyr)      
+#library(ggplot2)  
+#library(caret)     
+#library(xgboost)    
+library(e1071)      
+#library(cowplot)    
+library(Matrix)
+library(magrittr)# an aggregator package for performing many machine learning models
+
+
+#install.packages("devtools")
+#devtools::install_github("gbm-developers/gbm")
+
+
+#Bagging the imbalanced data
+
+library(ipred)
+library(rpart)
+
+#we can modify the maxdepth and minsplit if needed
+#r doc, https://www.rdocumentation.org/packages/ipred/versions/0.4-0/topics/bagging
+
+df.bagging<- bagging(status ~.,
+                        data=train,
+                        control=rpart.control(maxdepth=5, minsplit=15))
+
+
+test$pred.class <- predict(df.bagging, test)
+
+
+
+confusionMatrix(table(test$pred.class,test$status),positive = "1")
+
+
+
+#using bagging with a max depth of 5 and minsplit of 15, gives an accuracy, sensitivity, precision and specificity of 1,This is a much better model than the model that we had built with KNN.
+#Bagging has help us much when since we are using a data set that is such imbalanced.
+
+```
+
+
+```{r echo=FALSE}
+#loading a few libraries
+
+library(gbm)          # basic implementation using AdaBoost
+library(xgboost)      # a faster implementation of a gbm
+library(caret)   
+library(data.table) 
+#library(dplyr)      
+#library(ggplot2)  
+#library(caret)     
+#library(xgboost)    
+library(e1071)      
+#library(cowplot)    
+library(Matrix)
+library(magrittr)# an aggregator package for performing many machine learning models
+
+
+#install.packages("devtools")
+#devtools::install_github("gbm-developers/gbm")
+
+
+#Bagging the imbalanced data
+
+library(ipred)
+library(rpart)
+
+#we can modify the maxdepth and minsplit if needed
+#r doc, https://www.rdocumentation.org/packages/ipred/versions/0.4-0/topics/bagging
+
+df.bagging.smote<- bagging(status ~. -DRV_CLAIM_AMT,
+                        data=train.smote,
+                        control=rpart.control(maxdepth=5, minsplit=15))
+
+
+train$df.pred.class<-predict(df.bagging, train[,1:32])
+test$df.pred.class <- predict(df.bagging, test[,1:32])
+
+
+
+confusionMatrix(table(train$df.pred.class,train$status),positive = "1")
+confusionMatrix(table(test$df.pred.class,test$status),positive = "1")
+
+
+
+
+#using bagging with a max depth of 5 and minsplit of 15, gives an accuracy, sensitivity, precision and specificity of 1,This is a much better model than the model that we had built with KNN.
+#Bagging has help us much when since we are using a data set that is such imbalanced.
+
+```
+
+
+
+
+```{r echo=FALSE}
+#XGBOOST 
+#XGBoost works with matrices that contain all numeric variables
+# we also need to split the training data and label
+
+
+knn.df= df
+
+
+#Scaling of Numeric Variables
+knn.df[,c("Num_Vehicle_Age", "Num_IDV", "DRV_CLAIM_AMT", "Num_Net_OD_Premium",
+         "PaymentDays", "IntimationDays")] = scale(knn.df[,c("Num_Vehicle_Age", "Num_IDV", "DRV_CLAIM_AMT", "Num_Net_OD_Premium", "PaymentDays", "IntimationDays")])
+
+#str(knn.df)
+
+#Factor variables - Dummy code - More than 2 levels
+#install.packages("fastDummies")
+results <- fastDummies::dummy_cols(knn.df)
+
+
+#removee knn.df and df
+rm(df,knn.df)
+
+
+#colnames(results1)
+results = results[,-c(1:5,8:17,19:20,23,25:32,197:198)] #removed all original variables and kept the dummy coded variables for all factors
+
+results= results[,c(1:6,8:170,7)] #readjusting the status variable as the last!
+
+
+
+nearZeroVar(results) #removing the zero variance columns
+
+
+results1= results[,-nearZeroVar(results)]
+colnames(results1)
+#rm(results, knn.df)
+
+
+
+#Training and Testing of the data
+#Spliting data as training and test set. Using createDataPartition() function from caret
+
+indx<- createDataPartition(y = results1$status,p = 0.70,list = FALSE)
+
+gd_train <- results1[indx,]
+gd_test<- results1[-indx,]
+
+#Checking distribution in original data and partitioned data
+prop.table(table(gd_train$status)) * 100
+
+prop.table(table(gd_test$status)) * 100
+
+prop.table(table(results1$status)) * 100
+
+
+gd.train.smote<-SMOTE(status~., gd_train, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(gd.train.smote$status))
+
+
+
+
+gd_features_train<-as.matrix(gd.train.smote[,-c(3,95)])
+gd_label_train<-as.matrix(gd.train.smote[,95])
+gd_features_test<-as.matrix(gd_test[,-c(3,95)])
+gd_features_train1<-as.matrix(gd_train[,-c(3,95)])
+
+
+xgb.fit <- xgboost(
+  data = gd_features_train,
+  label = gd_label_train,
+  eta = 0.001,#this is like shrinkage in the previous algorithm
+  max_depth = 3,#Larger the depth, more complex the model; higher chances of overfitting. There is no standard                      value for max_depth. Larger data sets require deep trees to learn the rules from data.
+  min_child_weight = 3,#it blocks the potential feature interactions to prevent overfitting
+  nrounds = 10000,#controls the maximum number of iterations. For classification, it is similar to the number of                       trees to grow.
+  nfold = 5,
+  objective = "binary:logistic",  # for regression models
+  verbose = 1,               # silent,
+  early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
+)
+
+#gd_features_test<-as.matrix(gd_features_test[,1:ncol(gd_features_test)-1])
+
+#gd_train$xgb.pred.class <- predict(xgb.fit, gd_features_train)
+gd_test$xgb.pred.class <- predict(xgb.fit, gd_features_test[,-c(94)])
+
+
+table(gd_train$status,gd_train$xgb.pred.class>0.5)
+table(gd_test$status,gd_test$xgb.pred.class>0.5)
+
+#this model was definitely better
+#or simply the total correct of the minority class
+sum(gd_test$status==1 & gd_test$xgb.pred.class>=0.5)
+
+
+```
+
+
+```{r echo=FALSE}
+#to improvise the model with the best fit.
+#in this code chunk we will playing around with all the values until we find the best fit
+#let's play with shrinkage, known as eta in xbg
+tp_xgb<-vector()
+lr <- c(0.001, 0.01, 0.1, 0.3, 0.5, 0.7, 1)
+md<-c(1,3,5,7,9,15)
+nr<-c(2, 50, 100, 1000, 10000)
+for (i in md) {
+  
+  xgb.fit <- xgboost(
+    data = gd_features_train,
+    label = gd_label_train,
+    eta = 1,
+    max_depth = 5,
+    nrounds = 50,
+    nfold = 5,
+    objective = "binary:logistic",  # for regression models
+    verbose = 1,               # silent,
+    early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
+  )
+  
+  gd_test$xgb.pred.class <- predict(xgb.fit, gd_features_test[,-c(94)])
+  
+  tp_xgb<-cbind(tp_xgb,sum(gd_test$status==1 & gd_test$xgb.pred.class>=0.5))
+  #if your class=1 and our prediction=0.5, we are going to display it with the next line compare the same algorithm for different values
+  
+}
+
+tp_xgb
+table(gd_test$status,gd_test$xgb.pred.class>=0.5)
+
+```
+#here there is significant improvement over all the models that we have done so far
+
+
+#observations from Bagging and Boosting
+
+#DRV_CLAIM_AMT is a highly correlated /collinear variable across all models
+#running the nrounds 
+
+
+```{r echo=FALSE}
+#now we put them all into our best fit!
+
+xgb.fit.final <- xgboost(
+  data = gd_features_train,
+  label = gd_label_train,
+  eta = 1,
+  max_depth = 5,
+  nrounds = 50,
+  nfold = 50,
+  objective = "binary:logistic",  # for regression models
+  verbose = 1,               # silent,
+  early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
+)
+
+
+gd_train$xgb.pred.class <- predict(xgb.fit.final, gd_features_train1)
+gd_test$xgb.pred.class <- predict(xgb.fit.final, gd_features_test[,-c(94)])
+
+sum(gd_test$status==1 & gd_test$xgb.pred.class>=0.5)
+table(gd_test$status, gd_test$xgb.pred.class>=0.5)
+
+
+
+gd.boost.train<-ifelse(gd_train$xgb.pred.class>=0.5, "1", "0")
+gd.boost.test<-ifelse(gd_test$xgb.pred.class>=0.5, "1", "0")
+#predicted.log <- ifelse(pred.log> 0.5, "1", "0")
+confusionMatrix(as.factor(gd.boost.test),gd_test$status, positive = "1")
+confusionMatrix(as.factor(gd.boost.train),gd_train$status, positive = "1")
+
+
+```
+
+
+```{r}
+seed=1000
+set.seed(seed) #since kmeans uses a randomized starting point for cluster centroids
+
+
+#colnames(results1)
+clust3 = kmeans(x=clus.df[,-c(22,23)], centers = 4, nstart = 5)
+
+print(clust3)
+```
+
+```{r}
+library(cluster)
+clusplot(clus.df, clust2$cluster, 
+         color=TRUE, shade=TRUE, labels=2, lines=1)
+```
+
+```{r}
+totWss=rep(0,15)
+for(k in 1:15){
+  set.seed(seed)
+  clust=kmeans(x=clus.df[,-c(22,23)], centers=k, nstart=5)
+  totWss[k]=clust$tot.withinss
+}
+plot(c(1:15), totWss, type="b", xlab="Number of Clusters",
+       ylab="sum of 'Within groups sum of squares'")  
+
+print(totWss)
+```
+
+Looks like K=3 might be a good choice (elbow argument). "NbClust" is another package that the best clustering scheme using a number of experiments on the given data. Make sure you have the package installed.
+
+
+```{r, results='hide',fig.keep='none', warning=FALSE,message=FALSE,error=FALSE}
+#install.packages("NbClust")
+#install.packages ("factoextra")
+library(NbClust)
+library(factoextra)
+set.seed(seed) 
+
+
+clus.df= df[,c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,24,28,29)]
+clus.df[,c(5,6,19,20,21)]= scale(clus.df[,c(5,6,19,20,21)])
+
+#nc <- NbClust(results1[,c(,-95)], min.nc=2, max.nc=6, method="kmeans")
+
+#nc1 <- NbClust(clus.df, min.nc=2, max.nc=6, method="kmeans")
+
+#variance= fviz_nbclust(results1[,-95], kmeans, method ="wss")
+#round(cumsum(variance$data$y/sum(variance$data$y))*100,2)
+
+#variance
+```
+
+
+The object nc now contains the best number of cluster reported by each experiment. Tabulating the first row of nc:
+
+```{r}
+table(nc$Best.n[1,])
+```
+
+Suggesting strongly that K=3 would be the best choice:
+
+```{r}
+set.seed(seed) #since kmeans uses a randomized starting point for cluster centroids
+
+clust3 = kmeans(x=custSpendData.Scaled, centers = 3, nstart = 5)
+print(clust3)
+
+```
+
+```{r}
+library(cluster)
+clusplot(results1[,-95], clust2$cluster, color=TRUE, shade=TRUE, labels=2, lines=1)
+```
+
+Adding the cluster numbers back to the dataset
+
+```{r}
+aa$Clusters = clust3$cluster
+print(aa)
+
+```
+
+And aggregating
+
+```{r}
+
+## Aggregate columns 3:7 for each cluster by their means
+df1= as.data.frame(aa)
+
+df1$status= as.numeric(df1$status)
+custProfile = aggregate(df1[,c(2,7,10,27,31,32,33,35)],list(df1$Clusters),FUN="mean")
+print(custProfile)
+
+```
+
+
+
+
+
+

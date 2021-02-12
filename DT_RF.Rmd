@@ -1,0 +1,479 @@
+---
+title: "DT_RF"
+author: "Anupama Rathore"
+date: "05/12/2020"
+output: word_document
+---
+
+
+```{r echo=FALSE}
+toload_libraries <- c("reshape2", "rpsychi", "car", "psych", "corrplot", "forecast", "GPArotation", "psy", "MVN", "DataExplorer", "ppcor", "Metrics", "foreign", "MASS", "lattice", "nortest", "Hmisc","factoextra", "nFactors")
+#new.packages <- toload_libraries[!(toload_libraries %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.packages)
+lapply(toload_libraries, require, character.only= TRUE)
+library(funModeling)
+library(Hmisc)
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+library(PerformanceAnalytics)
+library(nFactors)
+library(psych)
+library(flextable)
+library(officer)
+library(GGally)
+library(caTools)
+library(data.table)
+library(ROCR)
+library(class)
+library(gmodels)
+library(naivebayes)
+library(gridExtra)
+library(caret)
+library(dplyr)
+
+
+#RUNNING the First Model - DECISION TREES
+library(rpart)
+library(rpart.plot)
+```
+
+
+## DECISION TREE - Full Grown Tree
+```{r echo= FALSE}
+load("groupdf.RData")
+
+#summary(df)
+#colnames(df)
+
+
+#df= df[,c(1:21,23:33,22)]
+#save(df, file ="groupdf.RData")
+
+set.seed(300)
+
+ind <- sample(2, nrow(df), replace=TRUE, prob=c(0.7, 0.3))
+trainNB <- df[ind==1,]
+testNB <- df[ind==2,]
+#checking the dimensions of train and test datasets
+dim(trainNB)
+dim(testNB)
+#data is split in a ratio of 70:30 with train and test.
+
+## Check split consistency
+sum(trainNB$status==1)/nrow(trainNB)
+sum(testNB$status==1)/nrow(testNB)
+sum(df$status==1) / nrow(df)
+```
+
+## DECISION TREE WITH ALL VARIABLES
+```{r echo=FALSE}
+#running the model without a cp parameter to grow the full tree
+dstree <- rpart(formula = status ~ ., 
+                data = trainNB, method = "class", cp=0, minbucket=10)
+#deducted DRV claim amount as all claim variables were showing insignifanct because of this
+
+#printing the decision tree in the console
+dstree
+#plots the tree in a graphical manner
+rpart.plot(dstree, extra = 106)
+
+printcp(dstree)
+plotcp(dstree)
+dstree$cptable[which.min(dstree$cptable[,"xerror"]),"CP"]
+
+```
+
+The Variables used in the decision tree is DRV_CLAIM_AMT.  The full tree is grown with 2 n-splits and the *xerror* is zero at the second n-split.Looking at the plot, it signifies, where the claim amounts are less than on equal to 102, those are rejected which is intuitive as there is no claim amount for policies which are rejected. Hence this would also mean that the rejected or all the 1's are directly correlated to claim values. We shall build a model excluding the "DRV_CLAIM_AMT".
+
+
+```{r echo=FALSE}
+#running the model without a cp parameter to grow the full tree
+dstree <- rpart(formula = status ~ . -DRV_CLAIM_AMT, 
+                data = trainNB, method = "class", cp=0, minbucket=10)
+#deducted DRV claim amount as all claim variables were showing insignificant because of this
+
+#printing the decision tree in the console
+dstree
+#plots the tree in a graphical manner
+rpart.plot(dstree, extra = 106)
+
+printcp(dstree)
+plotcp(dstree)
+dstree$cptable[which.min(dstree$cptable[,"xerror"]),"CP"]
+
+```
+Full Grown tree excluding the claim value, results in signifying other variable as important namely : Accident year, Claim Intimation year, Intimation Days, Payment Days, Number of Claims taken in the last 5 years, Class_Code, Vehicle Colour, Driver's Experience, Claim Satisfaction Score, RTA Location, Place of the Accident, Road Type and Last but not least, Nature of the Loss as significant.
+
+The full tree is grown with 8 n-splits but the *xerror* is reducing till 4 n-splits. checking the CP or cost complexity parameter, the tree can be pruned at a 0.001124 
+
+### Pruning by the Cost Complexity Parameter
+```{r echo= FALSE}
+ptree= prune(dstree, cp=0.001124016, "CP") #cost complexity parameter is best at 0.0056, trees are prune based on optimal CP
+printcp(ptree)
+rpart.plot(ptree, cex= NULL)
+
+ptree$variable.importance
+
+ptree
+
+#shorter tree than the original
+library(RColorBrewer)
+library(rattle)
+
+#path.rpart(ptree,c(3,7,13,25))
+fancyRpartPlot(ptree, cex=0.6,palettes = c("Greys" ,"Oranges"), title("Pruned Decision Tree"))
+```
+CP or Cost complexity parameter is the metric which ic considered to Prune trees. The idea behind pruning a decision tree is to ensure to build a model which is neither **over-fitting nor under-fitting** and can be a good model as well as be a simpler decision tree to explain the variable implications.
+
+## Insights from the CART Model:
+
+1. Post Pruning, The model has now considered only Claim Intimation Year, Intimation Days, Accident year, Payment Days and Road Type as the most important variables;
+2. The Orange Nodes considered provides higher percentages of 1's or Nodes which bifurcate the claims as rejected and accepted status. To Explain each node :
+  a. Node 3 which constitutes of 100% of the total data, 86% of claims are rejected where there is no payment days or less that 0.5 days. Payment days is the difference of total number of days taken by the claim company to disburse the claim from the date of claim intimation; 
+  b. Node 7 & 13 which constitutes 6% of the total observations, can be interpreted as 97% of claims intimated in year 2012, 2013 are of rejected status
+  c. Node 25 which comprises Road Type =3 i.e. claims arising out of City/Town Roads  when the intimation days are greater than 5 or more in number, 58% of the claims are rejected in that node.
+
+
+
+```{r echo=FALSE}
+#running the model without a cp parameter to grow the full tree
+dstree.smote <- rpart(formula = status ~ . -DRV_CLAIM_AMT, 
+                data = train.smote, method = "class", cp=0, minbucket=10)
+#deducted DRV claim amount as all claim variables were showing insignifanct because of this
+
+#printing the decision tree in the console
+dstree.smote
+#plots the tree in a graphical manner
+rpart.plot(dstree.smote, extra = 106)
+
+printcp(dstree.smote)
+plotcp(dstree.smote)
+dstree.smote$cptable[which.min(dstree.smote$cptable[,"xerror"]),"CP"]
+
+```
+
+
+```{r echo= FALSE}
+ptree= prune(dstree.smote, cp=0.0001023877, "CP") #cost complexity parameter is best at 0.0056, trees are prune based on optimal CP
+printcp(ptree)
+rpart.plot(ptree, cex= NULL)
+
+ptree$variable.importance
+
+ptree
+
+#shorter tree than the original
+library(RColorBrewer)
+library(rattle)
+
+#path.rpart(ptree,c(3,7,13,25))
+fancyRpartPlot(ptree, cex=0.5,palettes = c("Greys" ,"Oranges"), title("Pruned Decision Tree"))
+
+
+
+
+```
+
+```{r echo=FALSE}
+
+
+#train data
+train$CART.Pred = predict(dstree.smote,train,type="class")
+train$CART.Score = predict(dstree.smote,train,type="prob")
+
+confusionMatrix(train$status,train$CART.Pred, positive= "1")
+
+
+
+#test data
+test$CART.Pred = predict(dstree.smote,test[,-34],type="class")
+test$CART.Score = predict(dstree.smote,test[,-34],type="prob")
+
+confusionMatrix(test$status,test$CART.Pred, positive= "1")
+
+class(testNB$CART.Score)
+```
+
+```{r echo=FALSE}
+decile <- function(x)
+  { 
+  deciles <- vector(length=10) 
+  for (i in seq(0.1,1,.1))
+    { 
+    deciles[i*10] <- quantile(x, i, na.rm=T)   
+    }   
+  return ( 
+    ifelse(x<deciles[1], 1, 
+           ifelse(x<deciles[2], 2, 
+                  ifelse(x<deciles[3], 3, 
+                         ifelse(x<deciles[4], 4, 
+                                ifelse(x<deciles[5], 5,
+                                       ifelse(x<deciles[6], 6,
+                                              ifelse(x<deciles[7], 7,
+                                                     ifelse(x<deciles[8], 8,
+                                                            ifelse(x<deciles[9], 9, 10
+                                                                   )))))))))) 
+  }
+
+
+## deciling 
+testNB$deciles <- decile(testNB$rf.Score[,2])
+
+
+library(data.table)
+library(scales)
+tmp_DT = data.table(testNB
+                    )
+
+rank <- tmp_DT[, list(cnt=length(status),
+                      cnt_resp=sum(status==1),
+                      cnt_non_resp=sum(status==0)
+), by=deciles][order(-deciles)]
+
+rank$rrate <- round(rank$cnt_resp / rank$cnt,4); 
+rank$cum_resp <- cumsum(rank$cnt_resp) 
+rank$cum_non_resp <- cumsum(rank$cnt_non_resp) 
+rank$cum_rel_resp <- round(rank$cum_resp / sum(rank$cnt_resp),4); 
+rank$cum_rel_non_resp <- round(rank$cum_non_resp / sum(rank$cnt_non_resp),4); 
+rank$ks <- abs(rank$cum_rel_resp - rank$cum_rel_non_resp) * 100; 
+rank$rrate <- percent(rank$rrate) 
+rank$cum_rel_resp <- percent(rank$cum_rel_resp) 
+rank$cum_rel_non_resp <- percent(rank$cum_rel_non_resp) 
+rank
+
+```
+
+```{r echo= FALSE}
+
+library(ROCR)
+library(ineq)
+
+pred.cart <- prediction(testNB$CART.Score[,2], testNB$status) 
+pref.cart <- performance(pred.cart, "tpr", "fpr") 
+plot(pref.cart)
+
+KS.cart <- max(attr(pref.cart, 'y.values')[[1]]-attr(pref.cart, 'x.values')[[1]])
+
+
+auc.cart <- performance(pred.cart,"auc"); 
+auc.cart <- as.numeric(auc.cart@y.values) 
+
+
+gini.cart = ineq(testNB$CART.Score[,2], type="Gini") 
+
+KS.cart
+auc.cart
+gini.cart
+
+
+confusionMatrix(testNB$status,testNB$CART.Pred, positive= "1")
+
+# Cart Model with Unbalanced data
+# Accuracy of the model : 0.9964
+# Recall/TPR/Sensitivity : 0.96917
+# Precision : 0.9635
+# Specificity: 0.9979
+# KS 0.967
+# AUC : 0.9837
+
+
+```
+
+# Cart Model with Unbalanced data and exluding the Claim Value
+# Accuracy of the model : 0.9966
+# Recall/TPR/Sensitivity : 0.96917
+# Precision : 0.9635
+# Specificity: 0.9979
+# KS 0.9699
+# AUC : 0.9866
+# Gini : 0.9160
+
+
+#Random forest Model
+```{r echo=FALSE}
+testNB= testNB[,1:33]
+
+library(randomForest)
+
+## set a seed to start the randomness
+
+set.seed(1000)
+
+#ncol(RFtrain)
+#sqrt(14) #just a guideline for mtry sizes
+
+##Build the first RF model
+
+Rforest = randomForest(status~ .,
+                       data=trainNB,
+                       ntree=501, #setting an odd number as the prediction becomes better
+                       mtry=10,#tal number of random predictors that can be used in each RF, this has to lesser than the total number of predictors
+                       nodesize=10,# similar to minbucket
+                       importance=TRUE) # Importance of Variables
+
+print(Rforest) #this shows in not more than 51 tree all the OOB sample has been tested.
+plot(Rforest, main="")
+legend("topright", c("OOB", "0", "1"), text.col=1:6, lty=1:3, col=1:3)
+title(main="Error Rates Random Forest ")
+importance(Rforest) #DRV_CLM_AMT is the most importance variable in deciding the fraud status.
+
+```
+
+**OOB error rate** or Out of Bag error rate is 0.33%; Means that after a certain number of splitting of trees, the OOB prediction doesn't have much impact. Upon Checking the Error rates plot, we notice that the OOB is constant after 101 trees. So we can try setting the n-tree option to 101 instead of 501 and also adding the tuning parameters to see if the model has improved and the OOB error rate have further reduced;
+
+```{r echo=FALSE}
+
+##Tune up the RF model to find out the best mtry
+set.seed(1000)
+tRforest = tuneRF(x=trainNB[,-c(18,33)],
+                  y=trainNB$status,
+                  mtrystart = 10,
+                  stepfactor=1.5,
+                  ntree=101,
+                  improve=0.0001,
+                  nodesize=10,
+                  trace=TRUE,
+                  plot=TRUE,
+                  doBest=TRUE,
+                  importance=TRUE)
+
+#The same number of variables are important. 
+
+
+importance(tRforest)
+
+varImpPlot(tRforest, main = "Variable Importance Plots")
+```
+
+
+
+
+
+
+```{r echo=FALSE}
+## prediction on the RF test data
+
+testNB$rf.class = predict(Rforest, testNB, type="class")
+testNB$rf.Score = predict(Rforest, testNB, type="prob")
+
+confusionMatrix(testNB$status,testNB$rf.class, positive= "1")
+
+
+library(ROCR)
+library(ineq)
+
+## Model Performance
+pred.rf <- prediction(testNB$rf.Score[,2], testNB$status) 
+perf.rf <- performance(pred.rf, "tpr", "fpr") 
+plot(perf.rf)
+
+KS.rf <- max(attr(perf.rf, 'y.values')[[1]]-attr(perf.rf, 'x.values')[[1]])
+
+
+auc.rf <- performance(pred.rf,"auc"); 
+auc.rf <- as.numeric(auc.rf@y.values) 
+
+gini.rf = ineq(testNB$rf.Score[,2], type="Gini") 
+#with(RFtest, table(status, RF.Pred)) 
+
+KS.rf
+auc.rf
+gini.rf
+
+
+varImpPlot(Rforest, main = "Variable Importance Plots")
+#There is 100% Accuracy on train and test model in RF. Lets try SMOTE and then see the differencing.
+
+```
+
+
+
+
+##SMOTE RF MOdel
+```{r echo= FALSE}
+library(DMwR)
+library(grid)
+library(randomForest)
+## SMOTE technique
+train.smote<-SMOTE(status~., trainNB, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(train.smote$status))
+
+Rforest.smote = randomForest(status~ .-DRV_CLAIM_AMT,
+                       data=train.smote,
+                       ntree=101, #setting an odd number as the prediction becomes better
+                       mtry=10,#ttl number of random predictors that can be used in each RF, this has to lesser than the total number of predictors
+                       nodesize=10,# similar to minbucket
+                       importance=TRUE) # Importance of Variables
+
+
+print(Rforest.smote) #this shows in not more than 51 tree all the OOB sample has been tested.
+plot(Rforest.smote, main="")
+legend("topright", c("OOB", "0", "1"), text.col=1:6, lty=1:3, col=1:3)
+title(main="Error Rates Random Forest ")
+importance(Rforest.smote) #DRV_CLM_AMT is the most importance variable in deciding the fraud status.
+
+```
+```{r echo=FALSE}
+
+##Tune up the RF model to find out the best mtry
+set.seed(1000)
+tRforest = tuneRF(x=train.smote[,-c(18,33)],
+                  y=train.smote$status,
+                  mtrystart = 10,
+                  stepfactor=1.5,
+                  ntree=51,
+                  improve=0.0001,
+                  nodesize=10,
+                  trace=TRUE,
+                  plot=TRUE,
+                  doBest=TRUE,
+                  importance=TRUE)
+
+#The same number of variables are important. 
+
+
+importance(tRforest)
+
+varImpPlot(tRforest, main = "Variable Importance Plots")
+```
+
+```{r echo=FALSE}
+
+#prediction on the RF train smote data
+
+trainNB$rf.class.smote = predict(Rforest.smote, trainNB, type="class")
+trainNB$rf.Score.smote = predict(Rforest.smote, trainNB, type="prob")
+
+confusionMatrix(trainNB$status,trainNB$rf.class.smote, positive= "1")
+
+
+
+##prediction on the RF train smote data
+
+testNB$rf.class.smote = predict(Rforest.smote, testNB, type="class")
+testNB$rf.Score.smote = predict(Rforest.smote, testNB, type="prob")
+
+confusionMatrix(testNB$status,testNB$rf.class.smote, positive= "1")
+
+
+## Model Performance
+pred.rf.smote <- prediction(testNB$rf.Score.smote[,2], testNB$status) 
+perf.rf.smote <- performance(pred.rf.smote, "tpr", "fpr")
+
+plot(perf.rf.smote,lwd=3,colorize = TRUE)
+
+KS.rf.smote <- max(attr(perf.rf.smote, 'y.values')[[1]]-attr(perf.rf.smote, 'x.values')[[1]])
+
+
+auc.rf.smote <- performance(pred.rf.smote,"auc"); 
+auc.rf.smote <- as.numeric(auc.rf.smote@y.values) 
+
+library(ineq)
+gini.rf.smote = ineq(testNB$rf.Score.smote[,2], type="Gini") 
+#with(RFtest, table(status, RF.Pred)) 
+
+KS.rf.smote
+auc.rf.smote
+gini.rf.smote
+
+```

@@ -1,0 +1,391 @@
+---
+title: "Insurance Claims - Logistic"
+author: "Anupama Rathore"
+date: "12/4/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+toload_libraries <- c("reshape2", "rpsychi", "car", "psych", "corrplot", "forecast", "GPArotation", "psy", "MVN", "DataExplorer", "ppcor", "Metrics", "foreign", "MASS", "lattice", "nortest", "Hmisc","factoextra", "nFactors")
+#new.packages <- toload_libraries[!(toload_libraries %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.packages)
+lapply(toload_libraries, require, character.only= TRUE)
+library(funModeling)
+library(Hmisc)
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+library(PerformanceAnalytics)
+library(nFactors)
+library(psych)
+library(flextable)
+library(officer)
+library(GGally)
+library(caTools)
+library(data.table)
+library(ROCR)
+library(class)
+library(gmodels)
+library(naivebayes)
+library(gridExtra)
+library(caret)
+library(dplyr)
+```
+
+## Data Preparation & Partitioning
+
+```{r echo=FALSE}
+
+load("groupdf.RData")
+table(df$status)
+
+sum(df$status== 1)/nrow(df)
+
+
+#Partitioning data in train and test in 70:30 ratio
+set.seed(123)
+spl=sample.split(df$status,SplitRatio = 0.70)
+train=subset(df,spl==TRUE)
+dim(train)
+prop.table(table(train$status))
+
+
+test=subset(df,spl==FALSE)
+dim(test)
+prop.table(table(test$status))
+
+```
+
+Split of Train and Test in the ratio of 70:30 keeping the break up of status columns setting 1's for "rejected" claims and 0's for "closed" claims.
+
+### LOGISTIC REGRESSION- IMBALANCED DATA
+```{r echo=FALSE}
+# Logistic regression - Unbalanced Data 
+
+#base model
+
+#building the base model with all the variables
+
+model=glm(status~., data = train,family = binomial)
+
+summary(model)
+
+
+
+```
+
+The AIC is on 256. 04, where as the original model shows that none of the variables are significant, where as there is high multi-collinearity in the variables. Hence some of the variables need to be dropped.
+
+
+```{r pressure, echo=FALSE}
+model1=glm(status ~ Txt_Claims_History_Code + Txt_Incurred_Claims_Code
+           + Num_IDV + Num_Net_OD_Premium + Num_Vehicle_Age + DRV_CLAIM_AMT
+           + PaymentDays + intimation_flag + IntimationDays 
+           + Txt_CC_PCC_GVW_Code_rec + Txt_TAC_NOL_Code_rec + Txt_Location_RTA_rec
+           + Txt_Colour_Vehicle_rec
+           + Boo_Endorsement
+           , data = train,family = binomial)
+summary(model1)
+vif(model1)
+```
+
+Removing Policy Year, Accident year, claim intimation year, Txt_policy_code which are not significant, from the previous model, we can now observe that **DRV_CLAIM_AMT** is the only important variable, Running the VIF or the variable inflation factor which checks for multi collinearity amongst variables, its observed that Location, Claims History, Incurred Claims and CC_PCC_GVW are some the highly collinear or correlated variables. these need to be dropped for the next model.
+
+
+```{r echo=FALSE}
+model2=glm(status ~ Txt_Policy_Code
+           + Num_IDV + Num_Net_OD_Premium + Num_Vehicle_Age + DRV_CLAIM_AMT
+           + PaymentDays + intimation_flag + IntimationDays 
+           + Txt_TAC_NOL_Code_rec 
+           + Txt_Colour_Vehicle_rec
+           , data = train,family = binomial)
+
+summary(model2)
+vif(model2)
+```
+
+Running the model without the highly multi collinear variables, has further reduced the AIC to 36.338. The model depicts that DRV_Claim_Amt and Payment Days are showing as significant, but checking the VIF,  depicts that both the variables are collinear or correlated to each other; hence, will drop drv_claim_status and check the next models. Further by running the **step forward** approach using the **blorr** package, it is observed a lot of other variables have turned out significant after dropping DRV_CLAIM_AMT. Keeping all the significant variables are running the final model with unbalanced data
+
+```{r echo=FALSE}
+model13= glm(status ~  PaymentDays 
+             + Txt_TAC_NOL_Code_rec 
+             + Txt_Class_Code 
+             + Txt_Colour_Vehicle_rec 
+             + IntimationDays 
+             + Txt_Driver_Qualification_Code 
+             + Boo_Endorsement 
+             + Txt_Location_RTA_rec 
+             + Boo_NCB 
+             + Txt_Incurred_Claims_Code 
+             + Num_Vehicle_Age 
+             + Txt_Nature_Goods_Code ,
+             data= train, family = binomial)
+
+summary(model13)
+vif(model13)
+```
+
+The VIF for all the important variables included have a value which is less or equal to 1. Hence these can be used in the model. The interpretation of the estimates can be further explained by converting them into probabilities.
+
+### Likelihood Ratio Test
+```{r echo=FALSE}
+library(lmtest)
+lrtest(model13)
+```
+with a significant P value, we can ensure that the logit model is valid.
+Also, lets check the **Psuedo R2 or the goodness of fit**; for which we consider the *McFadden value*.
+
+Hypothesis for the Log Likelihood test:
+#H0: All betas are zero
+#H1: At least 1 beta is non zero
+* - From the log likelihood test,  we can see interpret, that if intercept only model was run, -10687.0 variance was unknown to us. When we take the full model,-3594.6 variance was unknown to us.So we can say that, 1-(-3594.6/-10687.0)= 66.36%  of the uncertainty inherent in the intercept only model is calibrated by the full model.
+* - Chisq likelihood ratio is significant. Also the p-value suggests that we can reject the null in favour of the Alternate Hypothesis that at least one of the beta is not zero.Hence,the Model is significant.
+
+### Logit R2 (Goodness of Fit)  
+
+```{r echo=FALSE}
+# To get the logit R2 of goodness
+#install.packages("pscl")
+library(pscl)
+pR2(model13)
+```
+
+The *McFadden’s pseudo-R Squared test suggests that at least 66.3% variance of the data is captured by our Model, which suggests it’s a robust model.
+
+  
+  ^#Trust only McFadden since its conservative
+  if my McFadden > is between .0 to .10 - Goodness of fit is weak
+if my McFadden > is between .10 to .20 - Goodness of fit is fare
+if my McFadden > is between .20 to .30 - Goodness of fit is Moderately is robust
+if my McFadden > is between .30 and above - Goodness of fit is reasonably robust model
+Typical in non-linear model R2 will be less as against linear regression
+
+```{r echo= FALSE}
+#Explaining the Log odds/ coefficients
+org.odds = exp(coef(model13))
+org.odds
+
+#for identifying the relative importance of variables we have to use ODDS instead of PROB
+prob=round((org.odds/(1+org.odds)), digits = 4)
+prob
+
+#relative importance amongst all the variables
+relativeImportance=round((org.odds[-1]/sum(org.odds[-1]))*100, digits= 3)
+relativeImportance[order(-relativeImportance)]
+```
+
+Interpretation of the probabilities and relative importance are describe in the below table.
+
+### Logistic Model Performance  - Test Set
+```{r echo= FALSE}
+#checking the confusion matrix for org model
+#predTrain= predict(model13, newdata= train, type="response")
+predTest = predict(model13, newdata= test, type="response")
+table(test$status, predTest>0.5)
+#predicted.class.Train<- ifelse(predTrain> 0.5, "1", "0")
+predicted.classes <- ifelse(predTest> 0.5, "1", "0")
+
+confusionMatrix(as.factor(predicted.classes),test$status, positive = "1")
+```
+
+Before interpreting the model performance measures, we need to understand the different criteria based on which the model will be judged if its a good model:
+
+In classification and/or regression based models, where the target has a binary output as 1s or 0s a **confusion matrix** is a good performance metric which gives the output of counts of the True and False Predictions. To give an inference on the output of train data:  
+1. The TPR  or **Sensitivity** is how many "predicted" positives are actual positives, which if referred to the matrix, 827 1's which were actual positives and correctly predicted positives too by the model; which in other words would mean that the model has correctly predicted 827 out of all the 1163 claims which in actual got rejected on the test data i.e. 71.10% sensitivity achieved.
+2. The **Accuracy** of this model on the test data is 0.9803 or 98% on test data.
+3. **True Negatives** or **Specificity** is how many "predicted" negatives are actual negatives, which in this case would mean that the model has correctly predicted 21,288 claims that were actually closed/accepted and not considered as fraudulent in reality also.
+4. **False Positives** which is total number of "predicted" positives that are actually negative are 109 which means that the model mis-classified 109 closed claims as rejected or fraudulent claims. High **Precision** relates to the low false positive rate. We have got 0.883 precision which is pretty good too.
+5. **False Negative** which is the total number of "predicted" negatives that are actually positive are 336 claims who as per the model are not the right claims to be disbursed and hence were set as rejected.
+
+
+While looking at the confusion matrix, it is very important to understand which metric will be more beneficial as per the problem statement and with iterations in the models, which metric can we impact to get to minimise fraudulent claims but at the same time, ensure that it doesn't even reject the genuine and most needed claims. Since, our objective is also to create a positive awareness about Insurance as a social responsibility, rejected more valid and genuine claims can also hamper the brand image of the insurance company thus by increasing customer churn where they might have to spend more on retaining the right claimers and this could affect the insurers decision to renew their policies with the same insurance company or switch.
+
+There always has to be a trade-off and based on the problem where the department wants to build a model that will help them identify the fraudulent claims with more rigor and severity, hence we shall give importance to the overall **sensitivity or True Positive Rate**  while evaluating other models and checking their model performance.
+
+Though this model has a very high Accuracy of 99.13% and 98.03% on Training and Test data set. The model has a high senstivity or Recall of 98.37% too which also means that the model is **Overfitting**. 
+
+# Accuracy of the model : 0.9803
+# Recall/TPR/Sensitivity : 0.711
+# Precision : 0.883
+# Specificity: 0.9949
+
+```{r echo= FALSE}
+################# Other methods for model performance ############
+library(blorr)
+
+k = blr_gains_table(model13,na.omit(test))
+plot(k)
+
+blr_ks_chart(k, title = "KS Chart",
+             yaxis_title = " ",xaxis_title = "Cumulative Population %",
+             ks_line_color = "black")
+
+blr_decile_lift_chart(k, xaxis_title = "Decile",
+                      yaxis_title = "Decile Mean / Global Mean",
+                      title = "Decile Lift Chart",
+                      bar_color = "blue", text_size = 3.5,
+                      text_vjust = -0.3)
+
+blr_decile_capture_rate(k, xaxis_title = "Decile",
+                        yaxis_title = "Capture Rate",
+                        title = "Capture Rate by Decile",
+                        bar_color = "blue", text_size = 3.5,
+                        text_vjust =-0.3)
+
+blr_confusion_matrix(model13, data = test)
+
+blr_gini_index(model13, data = na.omit(test))
+
+blr_roc_curve(k, title = "ROC Curve",
+              xaxis_title = "1 - Specificity",
+              yaxis_title = "Sensitivity",roc_curve_col = "blue",
+              diag_line_col = "red", point_shape = 18,
+              point_fill = "blue", point_color = "blue",
+              plot_title_justify = 0.5)  
+
+blr_rsq_mcfadden(model13)
+blr_rsq_mcfadden_adj(model13)
+
+
+```
+# Accuracy of the model : 0.9803
+# Recall/TPR/Sensitivity : 0.711
+# Precision : 0.883
+# Specificity: 0.9949
+#AUC of Original : 0.9768
+#Gini of Original : 0.9536
+#KS of Original : 0.9213
+
+```{r echo=FALSE}
+
+library(ROCR)
+
+ROCRpredtest = prediction(predTest, test$status)
+as.numeric(performance(ROCRpredtest, "auc")@y.values)
+perf1 = performance(ROCRpredtest, "tpr","fpr")
+#plot(perf,col="black",lty=2, lwd=2)
+plot(perf1,lwd=3,colorize = TRUE, main= "ROC Plot: Logistic Regression - Original Data")
+
+
+KStest <- max(attr(perf1, 'y.values')[[1]]-attr(perf1, 'x.values')[[1]])
+KStest
+
+
+auctest <- performance(ROCRpredtest,"auc"); 
+auctest <- as.numeric(auctest@y.values) 
+
+gini =2*auctest -1
+
+KStest
+auctest
+gini
+```
+
+### LOGISTIC REGRESSION - SMOTE DATA
+
+The data is balanced with a equal class distribution of 1's and 0's. 
+```{r echo=FALSE}
+# Logistic on SMOTE Data 
+
+#running the Smote tehcnique to balance the data set
+
+library(DMwR)
+library(grid)
+## SMOTE technique
+train.smote<-SMOTE(status~., trainNB, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(train.smote$status))
+
+```
+
+```{r echo=FALSE}
+model13.smote= glm(status ~  PaymentDays 
+             + Txt_TAC_NOL_Code_rec 
+             + Txt_Class_Code 
+             + Txt_Colour_Vehicle_rec 
+             + IntimationDays 
+             + Txt_Driver_Qualification_Code 
+             + Boo_Endorsement 
+             + Txt_Location_RTA_rec 
+             + Boo_NCB 
+             + Txt_Incurred_Claims_Code 
+             + Num_Vehicle_Age 
+             + Txt_Nature_Goods_Code ,
+             data= train.smote, family = binomial)
+
+summary(model13.smote)
+vif(model13.smote)
+
+
+k = blr_gains_table(model13.smote,na.omit(test))
+plot(k)
+
+blr_ks_chart(k, title = "KS Chart",
+             yaxis_title = " ",xaxis_title = "Cumulative Population %",
+             ks_line_color = "black")
+
+blr_decile_lift_chart(k, xaxis_title = "Decile",
+                      yaxis_title = "Decile Mean / Global Mean",
+                      title = "Decile Lift Chart",
+                      bar_color = "blue", text_size = 3.5,
+                      text_vjust = -0.3)
+
+blr_decile_capture_rate(k, xaxis_title = "Decile",
+                        yaxis_title = "Capture Rate",
+                        title = "Capture Rate by Decile",
+                        bar_color = "blue", text_size = 3.5,
+                        text_vjust =-0.3)
+
+blr_confusion_matrix(model13.smote, data = test)
+
+blr_gini_index(model13.smote, data = na.omit(test))
+
+blr_roc_curve(k, title = "ROC Curve",
+              xaxis_title = "1 - Specificity",
+              yaxis_title = "Sensitivity",roc_curve_col = "blue",
+              diag_line_col = "red", point_shape = 18,
+              point_fill = "blue", point_color = "blue",
+              plot_title_justify = 0.5)  
+
+blr_rsq_mcfadden(model13.smote)
+blr_rsq_mcfadden_adj(model13.smote)
+
+
+pred.log = predict(model13.smote, newdata= test, type="response")
+table(test$status, pred.log>0.5)
+(1082+15)/nrow(na.omit(test))
+
+#library(ROCR)
+ROCRpred.log = prediction(pred.log, test$status)
+as.numeric(performance(ROCRpred.log, "auc")@y.values)
+perf.log.smote = performance(ROCRpred.log, "tpr","fpr")
+#plot(perf.log.smote,col="black",lty=2, lwd=2)
+plot(perf.log.smote,lwd=3,colorize = TRUE, main= "ROC Plot: Logistic Regression - Smote Data")
+
+
+
+KStest.smote <- max(attr(perf.log.smote, 'y.values')[[1]]-attr(perf.log.smote, 'x.values')[[1]])
+KStest.smote
+
+
+auctest.smote <- performance(ROCRpred.log,"auc"); 
+auctest.smote <- as.numeric(auctest.smote@y.values) 
+
+gini.smote =2*auctest.smote -1
+
+KStest.smote
+auctest.smote
+gini.smote
+
+```
+
+
+# Accuracy of the model : 0.9262
+# Recall/TPR/Sensitivity : 0.9613
+# Precision : 0.405
+# Specificity: 0.9243
+# AUC of Smote: 0.9716
+# Gini of Smote : 0.9432
+# KS of Smote : 0.8902
+
+Smote data has definitely improved the sensitivity from 0.711 to 0.9613 but then this penalizes for the precision which was 0.883 reduced to 0.405; Hence with the smoting the data, model is now able to predict more "rejected" claims but at the same time, there are more closed/accepted claims that are considered as false positives which means considered as fraudulent; KS which ensures that there is maximum separation between 1's and 0's has also reduced on the smote data from 0.92 to 0.89. A very high sensitivity could also mean that the data is **over-fitting**. Hence, we should consider building other models  i.e. Naive Bayes, KNN, DT and RF and use the ensemble techniques to boost the model performance while ensuring the accuracy is maintained.
+

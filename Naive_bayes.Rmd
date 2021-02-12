@@ -1,0 +1,175 @@
+---
+title: "Naive_Bayes"
+author: "Anupama Rathore"
+date: "05/12/2020"
+output: word_document
+---
+
+
+
+
+## Naive Bayes Model
+
+```{r echo=FALSE}
+
+
+toload_libraries <- c("reshape2", "rpsychi", "car", "psych", "corrplot", "forecast", "GPArotation", "psy", "MVN", "DataExplorer", "ppcor", "Metrics", "foreign", "MASS", "lattice", "nortest", "Hmisc","factoextra", "nFactors")
+#new.packages <- toload_libraries[!(toload_libraries %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.packages)
+lapply(toload_libraries, require, character.only= TRUE)
+library(funModeling)
+library(Hmisc)
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+library(PerformanceAnalytics)
+library(nFactors)
+library(psych)
+library(flextable)
+library(officer)
+library(GGally)
+library(caTools)
+library(data.table)
+library(ROCR)
+library(class)
+library(gmodels)
+library(naivebayes)
+library(gridExtra)
+library(caret)
+library(dplyr)
+
+```
+
+
+```{r echo= FALSE}
+load("groupdf.RData")
+
+#summary(df)
+#colnames(df)
+
+
+#df= df[,c(1:31,33,32)]
+
+
+
+set.seed(300)
+
+ind <- sample(2, nrow(df), replace=TRUE, prob=c(0.7, 0.3))
+trainNB <- df[ind==1,]
+testNB <- df[ind==2,]
+#checking the dimensions of train and test datasets
+dim(trainNB)
+dim(testNB)
+#data is split in a ratio of 70:30 with train and test.
+
+## Check split consistency
+sum(trainNB$status==1)/nrow(trainNB)
+sum(testNB$status==1)/nrow(testNB)
+sum(df$status==1) / nrow(df)
+
+#building the naive bayes model
+naive_cell1 <- naive_bayes(status ~ . , data = trainNB, laplace = 1)
+naive_cell1$tables
+naive_cell1$prior
+```
+#* Running the Naive Bayes model, gives the conditional probabilities of all the variables when known the prior probability of churn Vs non churn customers.
+#* In order to interpret, the Naive Bayes model gives the distribution of each of predictor variable given the probability of churn customers is 14.4% and non churn customers is 85.5%.
+#* The average weeks of active period that customers who churned was 101 with a standard deviation of 38.8 weeks whereas the mean number of weeks the customers who didn't churn was 100 weeks with a std deviation of 40.27 weeks and likewise the other **Gaussian** distribution variables like RoamMins, Overage Fee, MonthlyCharge, DayCalls, DayMins and DataUsage would be interpreted  with the mean and std deviation of the churned Vs non churned customers given the probability to either of the event.
+#* Contract Renewal and Data Plan being a **Bernoulli** distribution, the model flushes the conditional probability which can be interpreted as that out of the 14% of churned customers, approx 73% did a contract renewal where as out of 85% non churned customers, approx. 93% had done a contract renewal; similarly to interpret DataPlan, out of the 14%, only 15% had a data plan where as for the non churned customers - 29% did have a data plan.  
+#* Finally, CustServCalls  which is set as Categorical Variable, depicts around 61% customers who of 14.4% churned customers, had churned within three or less customer service calls; which indicates they were not satisfied with the customer service in a way.  
+
+#Let's look out for the model performance on test data and comparing the accuracy/error rate:  
+  
+```{r echo=FALSE}
+#predicting with model
+p_prob <- predict(naive_cell1, trainNB, type = 'prob')
+#print(round(p_prob,3))
+
+p_probtest <- predict(naive_cell1, testNB, type = 'prob')
+#print(round(p_probtest,3))
+
+
+#To plot the features with Naive Bayes
+plot(naive_cell1)
+
+# Confusion Matrix - train data
+p_class <- predict(naive_cell1, trainNB, type="class")
+#p_class
+
+tab1 <- table(trainNB$status,p_class)
+1 - sum(diag(tab1)) / sum(tab1)   ## Train Error :  13.5%
+
+# Confusion Matrix - test data
+p <- predict(naive_cell1, testNB,type="class")
+(tab2 <- table(p,testNB$status))
+1 - sum(diag(tab2)) / sum(tab2) # Test Error : 12.24%
+
+confusionMatrix(table(p,testNB$status),positive = "1") # first the predictions, actual data
+
+#ROCR
+ROCRNBTest = prediction(p_probtest[,2], testNB$status)
+
+as.numeric(performance(ROCRNBTest, "auc")@y.values)
+perfNB = performance(ROCRNBTest, "tpr","fpr")
+#plot(perf,col="black",lty=2, lwd=2)
+plot(perfNB,lwd=3,colorize = TRUE)
+
+
+#Naive Bayes on Unbalanced Data
+# Accuracy of the model : 0.6936
+# Recall/TPR/Sensitivity : 0.98840
+# Precision : 0.147
+# Specificity: 0.677
+# AUC : 0.9804
+
+
+#running the Smote tehcnique to balance the data set
+
+library(DMwR)
+library(grid)
+## SMOTE technique
+train.smote<-SMOTE(status~., trainNB, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(train.smote$status))
+
+#Naive Bayes with Imbalanced Data
+
+library(e1071)
+
+df.nb<-naiveBayes(x=trainNB[,1:32], y=trainNB[,33])
+df.nb$tables
+df.nb$apriori
+
+
+pred_nb<-predict(df.nb,newdata = testNB[,1:32])
+
+confusionMatrix(table(pred_nb,testNB[,33]), positive = "1") # first the predictions, actual data
+
+#Naive Bayes on Unbalanced Data
+# Accuracy of the model : 0.6936
+# Recall/TPR/Sensitivity : 0.98840
+# Precision : 0.147
+# Specificity: 0.677
+# AUC : 0.9804
+
+
+#Smote data
+df.nb.smote<-naiveBayes(x=train.smote[,1:32], y=train.smote[,33])
+df.nb.smote$tables
+df.nb.smote$apriori
+
+
+pred_nb_smote<-predict(df.nb.smote,newdata = testNB[,1:32])
+
+confusionMatrix(table(pred_nb_smote,testNB[,33]), positive = "1") # first the predictions, actual data
+
+#Naive Bayes using Smote Data
+# Accuracy of the model : 0.6284
+# Recall/TPR/Sensitivity : 0.98012
+# Precision : 0.123
+# Specificity: 0.60852
+# AUC : 0.9804
+
+#Smote hasn't changed the sensitivity, where as accuracy is compromised with reduced accuracy 0.0628 compared to 0.693 when done with imbalanced data.Precision has further reduced from 0.147 to 0.123
+
+
+```
+
